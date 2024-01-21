@@ -1,0 +1,35 @@
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+
+char auth[] = "Your_Blynk_Auth_Token"; // Demo token
+char ssid[] = "Your_WiFi_SSID"; // Any SSID
+char pass[] = "Your_WiFi_Password"; //Password
+
+// Define the soil moisture sensor pin
+const int moistureSensorPin = A0;
+
+void setup() {
+  Serial.begin(115200);
+
+  Blynk.begin(auth, ssid, pass);
+}
+
+void loop() {
+  Blynk.run();
+
+  // Read soil moisture level
+  int moistureLevel = analogRead(moistureSensorPin);
+
+  // Map the moisture level to a percentage (adjust these values based on your sensor)
+  int percentage = map(moistureLevel, 0, 1023, 100, 0);
+  
+  // Print the moisture level to the serial monitor
+  Serial.print("Moisture Level: ");
+  Serial.print(percentage);
+  Serial.println("%");
+
+  // Update Blynk gauge widget with the moisture level
+  Blynk.virtualWrite(V0, percentage);
+
+  delay(1000); // Delay for stability, adjust as needed
+}
