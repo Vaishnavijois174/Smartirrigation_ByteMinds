@@ -1,0 +1,354 @@
+// Blynk IOT 
+
+#define BLYNK_PRINT Serial
+#include <SPI.h>
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+//#include <DHT.h>  
+#include <ArduinoJson.h>
+#include <ESP8266HTTPClient.h>
+
+
+//#define BLYNK_FIRMWARE_VERSION        "0.1.0"
+
+
+#define BLYNK_TEMPLATE_ID "TMPL35dM7tSb9"
+#define BLYNK_TEMPLATE_NAME "SMARTY"
+char auth[] = "1UAVxNzhFKc5K_wkMfdYCZwNRJ38AOQK";
+const char* ssid = "realme 8";
+const char* password = "66666666";
+const char* apiKey = "ac2c057155fb195a51780c8617edb853";
+const char* city = "Mysore";
+const char* countryCode = "IN";  // Country code            
+
+#define SCREEN_WIDTH 128 // OLED display width in pixels
+#define SCREEN_HEIGHT 64 // OLED display height in pixels
+#define OLED_RESET -1 // Reset pin # (/ -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+//#define DHTPIN D4          
+//#define DHTTYPE DHT11
+//DHT dht(DHTPIN, DHTTYPE);
+#define ONE_WIRE_BUS D6
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+#define buzzer D5  
+#define rainPin D7
+int rainState = 0;
+int lastRainState = 0;
+const int AirValue = 590;   //reference value for air
+const int WaterValue = 300;  //reference value for water
+const int SensorPin = A0; // moisture sensore
+int soilMoistureValue = 0;
+int soilmoisturepercent = 0;
+int relay = D0;
+
+
+#define pirPin D3
+int pirValue;
+int pinValue;
+
+//Read value from blynk
+BLYNK_WRITE(V0) //motion PIR
+{
+  pinValue = param.asInt();
+}
+
+
+
+void setup()
+{
+  Serial.begin(115200);
+
+  Blynk.begin(auth, ssid, password, "blynk.cloud");
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C); //initialize with the I2C addr 0x3C (128x64)
+  display.clearDisplay();
+  pinMode(relay, OUTPUT);
+  pinMode(buzzer, OUTPUT);
+  sensors.begin(); // Dallas temperature
+  // Serial.println("DHT11 Sensor Test");
+  //dht.begin();
+}
+
+void getPirValue(void)        //Get PIR Data created a fun
+{
+  pirValue = digitalRead(pirPin);
+  if (pirValue)
+  {
+    Serial.println("Motion detected");
+    Blynk.notify("Motion detected in your farm") ;
+  }
+}
+
+void loop() {
+  Blynk.run();
+  //float h = dht.readHumidity(); if DHT sensor is used
+  //float t = dht.readTemperature();
+  //if (isnan(t) || isnan(h)) {
+  //Serial.println("Failed to read from DHT sensor!");
+  //return;
+  //-------- accessing data from opensource-- openweathermap
+  float temperatureCelsius;
+  float humidity;
+  String url = "http://api.openweathermap.org/data/2.5/weather?q=" + String(city) + "," + String(countryCode) + "&appid=" + String(apiKey);
+  WiFiClient WiFiClient;
+  HTTPClient http;
+
+
+  http.begin(WiFiClient, url);
+
+  int httpCode = http.GET();
+
+  if (httpCode > 0) {
+    String payload = http.getString();
+
+    // Parse JSON
+    DynamicJsonDocument doc(1024);
+    deserializeJson(doc, payload);
+
+    // Extract temperature in Kelvin
+    float temperatureKelvin = doc["main"]["temp"];
+
+    // Convert Kelvin to Celsius
+    temperatureCelsius = temperatureKelvin - 273.15;
+    humidity = doc["main"]["humidity"];
+    const char *description = doc["weather"][0]["description"];
+
+
+
+    Serial.print("Temperature: ");
+    Serial.println(temperatureCelsius);
+    Serial.println("humidity: ");
+    Serial.println(humidity);
+    Serial.print("description: ");
+    Serial.println(*description);
+    Blynk.virtualWrite(V3, temperatureCelsius);
+    Blynk.virtualWrite(V4, humidity);
+  } else {
+    Serial.println("Failed to get data");
+  }
+
+  http.end();
+
+  delay(6000); // Delay 6 sec before making the next request
+
+  sensors.requestTemperatures();
+  float temp = sensors.getTempCByIndex(0);
+
+  Serial.print("Soil Temperature: ");
+  Serial.println(temp);
+  //Serial.print("Temperature: ");//from DHT
+  //Serial.print(t);
+  // Serial.print("°C");
+  //Serial.print("Humidity: ");
+  //Serial.println(h);
+  //Serial.print("%");
+
+  //Blynk.virtualWrite(V3, t);  //V3 is for Temperature
+  //Blynk.virtualWrite(V4, h);  //V4 is for Humidity
+  Blynk.virtualWrite(V2, temp); //Dallas Temperature 
+
+  soilMoistureValue = analogRead(SensorPin);  //getting soil moisture vale
+  Serial.println(soilMoistureValue);
+
+  soilmoisturepercent = map(soilMoistureValue, 0, 4095, 0, 100);
+
+  Blynk.virtualWrite(V1, soilmoisturepercent); //Soil Moisture sensor
+
+  if (soilmoisturepercent >= 80 && soilmoisturepercent <= 100)
+  {
+    Serial.println("100 %");
+    delay(1500);
+    display.clearDisplay();
+
+    // display Soil humidity
+    display.setTextColor(WHITE);
+    display.setTextSize(1);
+    display.setCursor(0, 5);
+    display.print("Soil Hum: ");
+    display.print("100");
+    display.print(" %");
+
+    // display ds18b20 temperature 
+    display.setCursor(0, 20);
+    display.print("Soil Temp: "); // DS18
+    display.print(temp);
+    display.print(" ");
+    display.cp437(true);
+    display.write(167);
+    display.print("C");
+
+    // display relative AIR temperature
+    display.setCursor(0, 35);
+    display.print("Air Temp: "); 
+    display.print(temperatureCelsius);
+    display.print(" ");
+    display.cp437(true);
+    display.write(167);
+    display.print("C");
+
+    // display relative humidity of Air
+    display.setCursor(0, 50);
+    display.print("Air Hum: "); 
+    display.print(humidity);
+    display.print(" %");
+
+    display.display();
+    delay(1500);
+  }
+  else if (soilmoisturepercent == 0)
+  {
+    //Serial.println("0 %");
+    //delay(1500);
+    display.clearDisplay();
+
+    // display Soil moisture
+    display.setTextColor(WHITE);
+    display.setTextSize(1);
+    display.setCursor(0, 5);
+    display.print("Soil Hum: "); // moisture
+    //display.print("0");
+    display.print(" %");
+
+    // display DS18b20 temperature
+    display.setCursor(0, 20);
+    display.print("Soil Temp: "); // Ds18
+    display.print(temp);
+    display.print(" ");
+    display.cp437(true);
+    display.write(167);
+    display.print("C");
+
+    // display relative AIR TEMP
+    display.setCursor(0, 35);
+    display.print("Air Temp: "); 
+    display.print(temperatureCelsius);
+    display.print(" ");
+    display.cp437(true);
+    display.write(167);
+    display.print("C");
+
+    // display relative humidity of Air
+    display.setCursor(0, 50);
+    display.print("Air Hum: "); //DHT hum
+    display.print(humidity);
+    display.print(" %");
+
+    display.display();
+    delay(1500);
+  }
+  else if (soilmoisturepercent >= 0 && soilmoisturepercent <= 100)
+  {
+    Serial.print("M-level: ");
+    Serial.print(soilmoisturepercent);
+    Serial.println("%");
+    delay(1500);
+    display.clearDisplay();
+
+    // display Soil temperature
+    display.setTextColor(WHITE);
+    display.setTextSize(1);
+    display.setCursor(0, 5);
+    display.print("Soil Hum: "); //moisture
+    display.print(soilmoisturepercent);
+    display.print(" %");
+
+    // display DS18 soil temperature
+    display.setCursor(0, 20);
+    display.print("Soil Temp: "); // ds18
+    display.print(temp);
+    display.print(" ");
+    display.cp437(true);
+    display.write(167);
+    display.print("C");
+
+    // display relative AIR TEMP
+    display.setCursor(0, 35);
+    display.print("Air Temp: "); 
+    display.print(temperatureCelsius);
+    display.print(" ");
+    display.cp437(true);
+    display.write(167);
+    display.print("C");
+
+    // display relative humidity of Air
+    display.setCursor(0, 50);
+    display.print("Air Hum: "); 
+    display.print(humidity);
+    display.print(" %");
+
+    display.display();
+    delay(1500);
+  }
+  if (soilmoisturepercent >= 0 && soilmoisturepercent <= 20)
+  {
+    Serial.println("needs water, send notification");
+    //send notification
+    Blynk.notify("Plants need water... Pump is activated") ;
+    digitalWrite(relay, LOW);
+    digitalWrite(buzzer, HIGH);
+    Serial.println("Motor is ON");
+    WidgetLED PumpLed(V5);
+    PumpLed.on();
+    delay(1000);
+  }
+  else if (soilmoisturepercent > 20 && soilmoisturepercent <= 100)
+  {
+    Serial.println("Soil Moisture level looks good...");
+    digitalWrite(relay, HIGH);
+    digitalWrite(buzzer, LOW);
+    Serial.println("Motor is OFF");
+    WidgetLED PumpLed(V5);
+    PumpLed.off();
+    delay(1000);
+  }
+
+  rainState = digitalRead(rainPin);
+  Serial.println(rainState);
+  // ------------------------------------------rain detection----------//
+   if(humidity >= 70)
+   {
+    Serial.println("chance of rain");
+    Blynk.notify("chance of rain") ;
+    Blynk.logEvent("rain_Alert","chance of rain");
+   }
+   else
+   {
+     Serial.println("no rain.....");
+//     Blynk.email("aryasuhas023@gmail.com");
+    Blynk.notify("no rain.....") ;
+    Blynk.logEvent("rain_Alert","chance of rain"); //notification from blynk
+   }
+  
+  //if (rainState == 0 && lastRainState == 1) //if rain sensor is used
+  //{
+   // Serial.println("no Rain....");
+   // Blynk.notify("no Rain....") ;
+   // lastRainState = 1;
+   // delay(1000);
+    //send notification
+
+ // }
+ // else if (rainState == 0 && lastRainState == 1) {
+ //   delay(1000);
+ // }
+ // else {
+  //  Serial.println("It's Raining outside");
+  //  lastRainState = 0;
+  //  delay(1000);
+  //}
+  
+  if (pinValue == HIGH)
+  {
+    getPirValue(); //fun call
+  }
+  delay(100);
+}
